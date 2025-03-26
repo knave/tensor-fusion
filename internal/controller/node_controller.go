@@ -100,6 +100,10 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		if err := r.Client.List(ctx, &poolList); err != nil {
 			return ctrl.Result{}, fmt.Errorf("can not list gpuPool : %w", err)
 		}
+		// requeue if the pool is created after the node
+		if len(poolList.Items) == 0 {
+			return ctrl.Result{RequeueAfter: constants.PendingRequeueDuration}, nil
+		}
 		pool, matched, err := getMatchedPoolName(node, poolList.Items)
 		if err != nil {
 			return ctrl.Result{}, err
