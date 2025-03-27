@@ -36,15 +36,15 @@ var _ = Describe("GPUNode Controller", func() {
 			gpuNode := getMockGPUNode(ctx, "mock-node")
 
 			By("checking that the node discovery job is created")
-			Eventually(func() *int32 {
+			Eventually(func(g Gomega) {
 				job := &batchv1.Job{}
-				k8sClient.Get(ctx, types.NamespacedName{
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
 					Name:      fmt.Sprintf("node-discovery-%s", gpuNode.Name),
 					Namespace: utils.CurrentNamespace(),
-				}, job)
+				}, job)).Should(Succeed())
 
-				return job.Spec.TTLSecondsAfterFinished
-			}, timeout, interval).Should(Equal(ptr.To[int32](3600 * 10)))
+				g.Expect(job.Spec.TTLSecondsAfterFinished).Should(Equal(ptr.To[int32](3600 * 10)))
+			}, timeout, interval).Should(Succeed())
 
 			By("checking that the hypervisor pod is created")
 			pod := &corev1.Pod{}

@@ -192,17 +192,17 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(ctx, mgr)
 	Expect(err).ToNot(HaveOccurred())
 
-	//gpuInfos, err := config.LoadGpuInfoFromFile("")
-	//Expect(err).ToNot(HaveOccurred())
+	// gpuInfos, err := config.LoadGpuInfoFromFile("")
+	// Expect(err).ToNot(HaveOccurred())
 
-	//err = (&TensorFusionWorkloadReconciler{
+	// err = (&TensorFusionWorkloadReconciler{
 	//	Client:    mgr.GetClient(),
 	//	Scheme:    mgr.GetScheme(),
 	//	Scheduler: scheduler,
 	//	Recorder:  mgr.GetEventRecorderFor("tensorfusionworkload"),
 	//	GpuInfos:  config.MockGpuInfo(),
-	//}).SetupWithManager(mgr)
-	//Expect(err).ToNot(HaveOccurred())
+	// }).SetupWithManager(mgr)
+	// Expect(err).ToNot(HaveOccurred())
 
 	go func() {
 		defer GinkgoRecover()
