@@ -297,7 +297,7 @@ func (c *TensorFusionEnv) GetGPUNodeList(poolIndex int) *tfv1.GPUNodeList {
 		g.Expect(k8sClient.List(ctx, nodeList, client.MatchingLabels(map[string]string{
 			fmt.Sprintf(constants.GPUNodePoolIdentifierLabelFormat, c.getPoolName(poolIndex)): "true",
 		}))).Should(Succeed())
-		g.Expect(len(nodeList.Items)).Should(Equal(len(c.poolNodeMap[poolIndex])))
+		g.Expect(nodeList.Items).Should(HaveLen(len(c.poolNodeMap[poolIndex])))
 	}, timeout, interval).Should(Succeed())
 	return nodeList
 }
@@ -326,7 +326,7 @@ func (c *TensorFusionEnv) GetNodeGpuList(poolIndex int, nodeIndex int) *tfv1.GPU
 		g.Expect(k8sClient.List(ctx, gpuList, client.MatchingLabels(map[string]string{
 			constants.LabelKeyOwner: c.getNodeName(poolIndex, nodeIndex),
 		}))).Should(Succeed())
-		g.Expect(len(gpuList.Items)).Should(Equal(c.poolNodeMap[poolIndex][nodeIndex]))
+		g.Expect(gpuList.Items).Should(HaveLen(c.poolNodeMap[poolIndex][nodeIndex]))
 	}, timeout, interval).Should(Succeed())
 	return gpuList
 }
@@ -347,7 +347,7 @@ func (c *TensorFusionEnv) GetPoolGpuList(poolIndex int) *tfv1.GPUList {
 		g.Expect(k8sClient.List(ctx, gpuList, client.MatchingLabels(map[string]string{
 			constants.GpuPoolKey: c.getPoolName(poolIndex),
 		}))).Should(Succeed())
-		g.Expect(len(gpuList.Items)).Should(Equal(poolGpuCount))
+		g.Expect(gpuList.Items).Should(HaveLen(poolGpuCount))
 	}, timeout, interval).Should(Succeed())
 	return gpuList
 }

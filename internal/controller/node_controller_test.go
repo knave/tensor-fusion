@@ -30,8 +30,8 @@ var _ = Describe("Node Controller", func() {
 				AddPoolWithNodeCount(2).
 				AddPoolWithNodeCount(3).
 				Build()
-			Expect(len(tfEnv.GetGPUNodeList(0).Items)).Should(Equal(2))
-			Expect(len(tfEnv.GetGPUNodeList(1).Items)).Should(Equal(3))
+			Expect(tfEnv.GetGPUNodeList(0).Items).Should(HaveLen(2))
+			Expect(tfEnv.GetGPUNodeList(1).Items).Should(HaveLen(3))
 		})
 	})
 })
