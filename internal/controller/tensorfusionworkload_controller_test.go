@@ -81,7 +81,7 @@ var _ = Describe("TensorFusionWorkload Controller", func() {
 		It("Should rebuild all worker pods", func() {
 			pool := tfEnv.GetGPUPool(0)
 
-			workload := createTensorFusionWorkload(pool.Name, key, 2)
+			createTensorFusionWorkload(pool.Name, key, 2)
 
 			podList := &corev1.PodList{}
 			Eventually(func(g Gomega) {
@@ -100,7 +100,7 @@ var _ = Describe("TensorFusionWorkload Controller", func() {
 			}
 			Expect(originalPodTemplateHash).NotTo(BeEmpty())
 
-			workload = &tfv1.TensorFusionWorkload{}
+			workload := &tfv1.TensorFusionWorkload{}
 			Expect(k8sClient.Get(ctx, key, workload)).To(Succeed())
 			workload.Spec.Resources.Limits.Tflops = resource.MustParse("30")
 			workload.Spec.Resources.Limits.Vram = resource.MustParse("24Gi")
@@ -172,7 +172,7 @@ var _ = Describe("TensorFusionWorkload Controller", func() {
 				g.Expect(k8sClient.List(ctx, podList,
 					client.InNamespace(key.Namespace),
 					client.MatchingLabels{constants.WorkloadKey: key.Name})).To(Succeed())
-				g.Expect(podList.Items).Should(HaveLen(0))
+				g.Expect(podList.Items).Should(BeEmpty())
 			}, timeout, interval).Should(Succeed())
 
 			Eventually(func(g Gomega) {
@@ -270,7 +270,7 @@ func cleanupWorkload(key client.ObjectKey) {
 		g.Expect(k8sClient.List(ctx, podList,
 			client.InNamespace(key.Namespace),
 			client.MatchingLabels{constants.WorkloadKey: key.Name})).To(Succeed())
-		g.Expect(podList.Items).Should(HaveLen(0))
+		g.Expect(podList.Items).Should(BeEmpty())
 	}, timeout, interval).Should(Succeed())
 
 	Expect(k8sClient.Get(ctx, key, workload)).Should(Succeed())

@@ -215,8 +215,6 @@ var _ = BeforeSuite(func() {
 		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
 	}()
 
-	// TODO: backward compatible with existing tests, can be removed when unnecessary
-	// createMockPoolForTestsUsingManualReconcile(ctx)
 })
 
 var _ = AfterSuite(func() {
@@ -526,27 +524,4 @@ func (b *TensorFusionEnvBuilder) Build() *TensorFusionEnv {
 	b.UpdateHypervisorStatus()
 
 	return b.TensorFusionEnv
-}
-
-func createMockPoolForTestsUsingManualReconcile(ctx context.Context) {
-	poolSpecCopy := config.MockGPUPoolSpec.DeepCopy()
-	poolSpecCopy.NodeManagerConfig.NodeSelector.NodeSelectorTerms = []corev1.NodeSelectorTerm{
-		{
-			MatchExpressions: []corev1.NodeSelectorRequirement{
-				{
-					Key:      "foo-mock-label", // avoid conflict
-					Operator: "In",
-					Values:   []string{"true"},
-				},
-			},
-		},
-	}
-
-	pool := &tfv1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "mock",
-		},
-		Spec: *poolSpecCopy,
-	}
-	Expect(k8sClient.Create(ctx, pool)).To(Succeed())
 }
