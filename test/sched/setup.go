@@ -17,18 +17,22 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	informers "k8s.io/client-go/informers"
+	clientsetfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
+	internalcache "k8s.io/kubernetes/pkg/scheduler/backend/cache"
+	internalqueue "k8s.io/kubernetes/pkg/scheduler/backend/queue"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
+	"k8s.io/kubernetes/pkg/scheduler/metrics"
 	st "k8s.io/kubernetes/pkg/scheduler/testing"
 	tf "k8s.io/kubernetes/pkg/scheduler/testing/framework"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	testutil "sigs.k8s.io/scheduler-plugins/test/util"
 )
 
 // BenchmarkConfig holds benchmark configuration
@@ -85,23 +89,35 @@ func NewBenchmarkFixture(
 	b.Logf("%d Pods created, Needed TFLOPS: %f, Needed VRAM: %f", len(pods), neededTflops, neededVRAM)
 
 	// Batch create resources for better performance
-	batchCreateResources(b, ctx, client, nodes, gpus, pods, realAPIServer)
+	k8sNativeObjects := batchCreateResources(b, ctx, client, nodes, gpus, pods, realAPIServer)
 
 	// Setup allocator
 	allocator := setupAllocator(b, ctx, client)
 
 	// Setup framework and plugin
-	fwk, plugin := setupFrameworkAndPlugin(b, ctx, client, allocator, pods, nodes)
-
-	return &BenchmarkFixture{
-		ctx:       ctx,
-		cancel:    cancel,
-		plugin:    plugin,
-		nodes:     nodes,
-		pods:      pods,
-		allocator: allocator,
-		client:    client,
-		fwk:       fwk,
+	if !realAPIServer {
+		fwk, plugin := setupFrameworkAndPlugin(b, ctx, client, allocator, k8sNativeObjects)
+		return &BenchmarkFixture{
+			ctx:       ctx,
+			cancel:    cancel,
+			plugin:    plugin,
+			nodes:     nodes,
+			pods:      pods,
+			allocator: allocator,
+			client:    client,
+			fwk:       fwk,
+		}
+	} else {
+		return &BenchmarkFixture{
+			ctx:       ctx,
+			cancel:    cancel,
+			plugin:    nil,
+			nodes:     nodes,
+			pods:      pods,
+			allocator: allocator,
+			client:    client,
+			fwk:       nil,
+		}
 	}
 }
 
@@ -273,7 +289,8 @@ func generatePods(count int, namespace, poolName string) ([]*v1.Pod, float64, fl
 func batchCreateResources(
 	b *testing.B, ctx context.Context, client client.Client,
 	nodes []*v1.Node, gpus []*tfv1.GPU, pods []*v1.Pod, realAPIServer bool,
-) {
+) []runtime.Object {
+	k8sObjs := []runtime.Object{}
 	require.NoError(b, client.Create(ctx, &v1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: "benchmark-ns"},
 	}))
@@ -283,6 +300,7 @@ func batchCreateResources(
 	for _, node := range nodes {
 		nodeCopy := node.DeepCopy()
 		require.NoError(b, client.Create(ctx, nodeCopy))
+		k8sObjs = append(k8sObjs, nodeCopy)
 
 		if realAPIServer {
 			node.ResourceVersion = nodeCopy.ResourceVersion
@@ -310,13 +328,15 @@ func batchCreateResources(
 	b.Logf("Creating %d pods", len(pods))
 	for _, pod := range pods {
 		require.NoError(b, client.Create(ctx, pod))
+		k8sObjs = append(k8sObjs, pod)
 	}
 	b.Logf("%d pods created, duration: %v", len(pods), time.Since(timer))
+	return k8sObjs
 }
 
 func setupFrameworkAndPlugin(
 	b *testing.B, ctx context.Context, client client.Client,
-	allocator *gpuallocator.GpuAllocator, pods []*v1.Pod, nodes []*v1.Node,
+	allocator *gpuallocator.GpuAllocator, k8sObjs []runtime.Object,
 ) (framework.Framework, *gpuResourceFitPlugin.GPUFit) {
 	// Register plugins including our GPU plugin
 	registeredPlugins := []tf.RegisterPluginFunc{
@@ -324,11 +344,16 @@ func setupFrameworkAndPlugin(
 		tf.RegisterBindPlugin(defaultbinder.Name, defaultbinder.New),
 	}
 
-	// Create framework
-	fwk, err := tf.NewFramework(ctx, registeredPlugins, "",
-		frameworkruntime.WithPodNominator(testutil.NewPodNominator(nil)),
-		frameworkruntime.WithSnapshotSharedLister(testutil.NewFakeSharedLister(pods, nodes)),
+	fakeClientSet := clientsetfake.NewSimpleClientset(k8sObjs...)
+	informerFactory := informers.NewSharedInformerFactory(fakeClientSet, 0)
+	metrics.Register()
+	metricsRecorder := metrics.NewMetricsAsyncRecorder(1000, time.Second, ctx.Done())
+	fwk, err := tf.NewFramework(
+		ctx, registeredPlugins, "",
+		frameworkruntime.WithPodNominator(internalqueue.NewSchedulingQueue(nil, informerFactory)),
+		frameworkruntime.WithSnapshotSharedLister(internalcache.NewEmptySnapshot()),
 		frameworkruntime.WithEventRecorder(&events.FakeRecorder{}),
+		frameworkruntime.WithMetricsRecorder(metricsRecorder),
 	)
 	require.NoError(b, err)
 

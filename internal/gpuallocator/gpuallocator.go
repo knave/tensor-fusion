@@ -30,7 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	fwk "k8s.io/kube-scheduler/framework"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -39,6 +39,8 @@ import (
 
 const MaxGPUCounterPerAllocation = 128
 const CleanUpCheckInterval = 3 * time.Minute
+
+var GPUCapacityMap = map[string]tfv1.Resource{}
 
 type Strategy interface {
 	Score(gpu *tfv1.GPU) int
@@ -51,7 +53,7 @@ type SimulateSchedulingFilterDetail struct {
 	FilterStageDetails []filter.FilterDetail
 }
 
-func (p *SimulateSchedulingFilterDetail) Clone() framework.StateData {
+func (p *SimulateSchedulingFilterDetail) Clone() fwk.StateData {
 	return p
 }
 
@@ -882,6 +884,10 @@ func (s *GpuAllocator) handleGPUCreate(ctx context.Context, gpu *tfv1.GPU) {
 			s.poolGpuStore[pool][gpuInMem.Name] = gpuInMem
 		}
 	}
+
+	if gpu.Status.GPUModel != "" {
+		GPUCapacityMap[gpu.Status.GPUModel] = *gpu.Status.Capacity
+	}
 	log.Info("Added GPU to store", "name", key.Name, "phase", gpu.Status.Phase)
 }
 
@@ -929,6 +935,12 @@ func (s *GpuAllocator) handleGPUUpdate(ctx context.Context, gpu *tfv1.GPU) {
 	} else {
 		s.gpuStore[key] = gpu.DeepCopy()
 		log.V(6).Info("Updated GPU in store (new entry)", "name", key.Name, "phase", gpu.Status.Phase)
+	}
+
+	if gpu.Status.GPUModel != "" {
+		if _, exists := GPUCapacityMap[gpu.Status.GPUModel]; !exists {
+			GPUCapacityMap[gpu.Status.GPUModel] = *gpu.Status.Capacity
+		}
 	}
 }
 
