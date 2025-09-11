@@ -545,12 +545,13 @@ func (s *GpuAllocator) AdjustAllocation(ctx context.Context, adjustRequest tfv1.
 }
 
 func (s *GpuAllocator) ListNonUsingNodes() sets.Set[string] {
+	<-s.initializedCh
 	set := sets.New[string]()
-	for nodeName, gpuNames := range s.nodeWorkerStore {
+	for nodeName, podNames := range s.nodeWorkerStore {
 		// If using by TF, the node can not be used by original scheduler
 		// If using by other scheduler, won't record as TF worker, thus the map is empty
 		// Return non using nodes can ensure original scheduler not conflict with TF
-		if len(gpuNames) == 0 {
+		if len(podNames) == 0 {
 			set.Insert(nodeName)
 		}
 	}
@@ -562,6 +563,20 @@ func (s *GpuAllocator) DeallocByPodIdentifier(ctx context.Context, podIdentifier
 	if request, exists := s.uniqueAllocation[podUID]; exists {
 		s.Dealloc(request.WorkloadNameNamespace, request.GPUNames, request.PodMeta)
 	}
+}
+
+func (s *GpuAllocator) GetAllocationReqByNodeName(nodeName string) []*tfv1.AllocRequest {
+	allocRequests := make([]*tfv1.AllocRequest, 0, 8)
+	for workerName := range s.nodeWorkerStore[nodeName] {
+		podUID := s.podNamespaceNsToPodUID[workerName.String()]
+		if podUID == "" {
+			continue
+		}
+		if request, exists := s.uniqueAllocation[podUID]; exists {
+			allocRequests = append(allocRequests, request)
+		}
+	}
+	return allocRequests
 }
 
 func (s *GpuAllocator) checkGPUCapacityAndQuota(gpu *tfv1.GPU, oldRes, newRes tfv1.Resource) (tfv1.Resource, error) {
@@ -870,29 +885,7 @@ func (s *GpuAllocator) handleGPUCreate(ctx context.Context, gpu *tfv1.GPU) {
 	}
 	s.gpuStore[key] = gpuInMem
 
-	if gpuInMem.Status.NodeSelector != nil {
-		gpuNodeName := gpuInMem.Status.NodeSelector[constants.KubernetesHostNameLabel]
-		if gpuNodeName != "" {
-			if _, exists := s.nodeGpuStore[gpuNodeName]; !exists {
-				s.nodeGpuStore[gpuNodeName] = make(map[string]*tfv1.GPU, 4)
-			}
-			s.nodeGpuStore[gpuNodeName][gpuInMem.Name] = gpuInMem
-		}
-	}
-
-	if gpuInMem.Labels != nil {
-		pool := gpuInMem.Labels[constants.GpuPoolKey]
-		if pool != "" {
-			if _, exists := s.poolGpuStore[pool]; !exists {
-				s.poolGpuStore[pool] = make(map[string]*tfv1.GPU, 128)
-			}
-			s.poolGpuStore[pool][gpuInMem.Name] = gpuInMem
-		}
-	}
-
-	if gpu.Status.GPUModel != "" {
-		GPUCapacityMap[gpu.Status.GPUModel] = *gpu.Status.Capacity
-	}
+	s.addOrUpdateGPUMaps(gpuInMem)
 	log.Info("Added GPU to store", "name", key.Name, "phase", gpu.Status.Phase)
 }
 
@@ -942,10 +935,36 @@ func (s *GpuAllocator) handleGPUUpdate(ctx context.Context, gpu *tfv1.GPU) {
 		log.V(6).Info("Updated GPU in store (new entry)", "name", key.Name, "phase", gpu.Status.Phase)
 	}
 
-	if gpu.Status.GPUModel != "" {
-		if _, exists := GPUCapacityMap[gpu.Status.GPUModel]; !exists {
-			GPUCapacityMap[gpu.Status.GPUModel] = *gpu.Status.Capacity
+	s.addOrUpdateGPUMaps(gpu)
+}
+
+func (s *GpuAllocator) addOrUpdateGPUMaps(gpuInMem *tfv1.GPU) {
+	if gpuInMem.Status.NodeSelector != nil {
+		gpuNodeName := gpuInMem.Status.NodeSelector[constants.KubernetesHostNameLabel]
+		if gpuNodeName != "" {
+			if _, exists := s.nodeGpuStore[gpuNodeName]; !exists {
+				s.nodeGpuStore[gpuNodeName] = make(map[string]*tfv1.GPU, 4)
+			}
+			s.nodeGpuStore[gpuNodeName][gpuInMem.Name] = gpuInMem
+			if _, exists := s.nodeWorkerStore[gpuNodeName]; !exists {
+				s.nodeWorkerStore[gpuNodeName] = make(map[types.NamespacedName]struct{}, 4)
+			}
 		}
+
+	}
+
+	if gpuInMem.Labels != nil {
+		pool := gpuInMem.Labels[constants.GpuPoolKey]
+		if pool != "" {
+			if _, exists := s.poolGpuStore[pool]; !exists {
+				s.poolGpuStore[pool] = make(map[string]*tfv1.GPU, 128)
+			}
+			s.poolGpuStore[pool][gpuInMem.Name] = gpuInMem
+		}
+	}
+
+	if gpuInMem.Status.GPUModel != "" {
+		GPUCapacityMap[gpuInMem.Status.GPUModel] = *gpuInMem.Status.Capacity
 	}
 }
 
@@ -1166,7 +1185,7 @@ func (s *GpuAllocator) reconcileAllocationState() {
 		// No workers, but node contains GPU, need include into nodeWorkerStore with empty map
 		gpuNodeName := gpu.Status.NodeSelector[constants.KubernetesHostNameLabel]
 		if _, exists := s.nodeWorkerStore[gpuNodeName]; !exists {
-			s.nodeWorkerStore[gpuNodeName] = map[types.NamespacedName]struct{}{}
+			s.nodeWorkerStore[gpuNodeName] = make(map[types.NamespacedName]struct{}, 4)
 		}
 	}
 
