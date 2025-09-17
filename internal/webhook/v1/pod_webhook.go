@@ -164,6 +164,12 @@ func (m *TensorFusionPodMutator) Handle(ctx context.Context, req admission.Reque
 	utils.AddOrOverrideTFClientMissingAnnotationsBeforePatch(pod, tfInfo)
 	utils.AddTFDefaultClientConfBeforePatch(ctx, pod, pool, tfInfo, containerIndices)
 
+	// Add priorityClass if contains higher QoS level and Pod priority class not specified
+	if pod.Spec.PriorityClassName == "" &&
+		(tfInfo.Profile.Qos == tfv1.QoSHigh || tfInfo.Profile.Qos == tfv1.QoSCritical) {
+		pod.Spec.PriorityClassName = constants.TensorFusionSystemName + string(tfInfo.Profile.Qos)
+	}
+
 	// Inject initContainer and env variables
 	patches, err := m.patchTFClient(
 		pod, pool, tfInfo.Profile.IsLocalGPU, currentBytes, containerIndices,
@@ -517,16 +523,17 @@ func (m *TensorFusionPodMutator) assignClusterHostPortFromLeader(pod *corev1.Pod
 }
 
 func calculateQoSLevel(profile *tfv1.WorkloadProfileSpec, pool *tfv1.GPUPool) tfv1.QoSLevel {
-	sameReqLimits := profile.Resources.Limits.Tflops.Cmp(profile.Resources.Requests.Tflops) == 0 &&
-		profile.Resources.Limits.Vram.Cmp(profile.Resources.Requests.Vram) == 0
-
-	// set to critical if req == limits, same logic as Kubernetes QoS
-	if sameReqLimits {
-		return constants.QoSLevelCritical
-	}
-
 	// when not set, assign default QoS
 	if profile.Qos == "" {
+		sameReqLimits := profile.Resources.Limits.Tflops.Cmp(profile.Resources.Requests.Tflops) == 0 &&
+			profile.Resources.Limits.Vram.Cmp(profile.Resources.Requests.Vram) == 0
+
+		// set to high if req == limits, same logic as Kubernetes QoS
+		// critical QoS can preempt other pods, have to be set manually
+		if sameReqLimits {
+			return constants.QoSLevelHigh
+		}
+
 		if pool.Spec.QosConfig == nil || pool.Spec.QosConfig.DefaultQoS == "" {
 			return constants.QoSLevelMedium
 		}
