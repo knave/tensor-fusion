@@ -94,9 +94,9 @@ const (
 	GenHostPortNameLabel    = Domain + "/port-name"
 	GenPortNumberAnnotation = Domain + "/port-number"
 
-	AutoScaleLimitsAnnotation   = Domain + "/auto-limits"
-	AutoScaleRequestsAnnotation = Domain + "/auto-requests"
-	AutoScaleReplicasAnnotation = Domain + "/auto-replicas"
+	AutoScaleResourcesAnnotation      = Domain + "/auto-resources"
+	AutoScaleReplicasAnnotation       = Domain + "/auto-replicas"
+	AutoScaleTargetResourceAnnotation = Domain + "/auto-scale-target-resource"
 
 	GpuReleasedAnnotation = Domain + "/gpu-released"
 
@@ -140,6 +140,8 @@ const (
 	ConditionStatusTypeGPUPool               = "GPUPoolReady"
 	ConditionStatusTypeTimeSeriesDatabase    = "TimeSeriesDatabaseReady"
 	ConditionStatusTypeCloudVendorConnection = "CloudVendorConnectionReady"
+
+	ConditionStatusTypeRecommendationProvided = "RecommendationProvided"
 )
 
 const (

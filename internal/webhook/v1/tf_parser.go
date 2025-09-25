@@ -128,13 +128,13 @@ func ParseTensorFusionInfo(
 }
 
 func parseAutoScalingAnnotations(pod *corev1.Pod, workloadProfile *tfv1.WorkloadProfile) {
-	autoLimits, ok := pod.Annotations[constants.AutoScaleLimitsAnnotation]
-	if ok && autoLimits == constants.TrueStringValue {
-		workloadProfile.Spec.AutoScalingConfig.AutoSetLimits.Enable = true
+	autoResources, ok := pod.Annotations[constants.AutoScaleResourcesAnnotation]
+	if ok && autoResources == constants.TrueStringValue {
+		workloadProfile.Spec.AutoScalingConfig.AutoSetResources.Enable = true
 	}
-	autoRequests, ok := pod.Annotations[constants.AutoScaleRequestsAnnotation]
-	if ok && autoRequests == constants.TrueStringValue {
-		workloadProfile.Spec.AutoScalingConfig.AutoSetRequests.Enable = true
+	targetResource, ok := pod.Annotations[constants.AutoScaleTargetResourceAnnotation]
+	if ok {
+		workloadProfile.Spec.AutoScalingConfig.AutoSetResources.TargetResource = targetResource
 	}
 	autoReplicas, ok := pod.Annotations[constants.AutoScaleReplicasAnnotation]
 	if ok && autoReplicas == constants.TrueStringValue {
