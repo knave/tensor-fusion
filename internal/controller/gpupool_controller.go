@@ -394,7 +394,7 @@ func (r *GPUPoolReconciler) reconcilePoolComponents(ctx context.Context, pool *t
 	errs := []error{}
 	ctrlResults := []*ctrl.Result{}
 	for _, c := range components {
-		ctrlResult, err := component.ManageUpdate(r.Client, ctx, pool, c)
+		ctrlResult, err := component.ManageUpdate(ctx, r.Client, pool, c)
 		if err != nil {
 			errs = append(errs, err)
 		}
