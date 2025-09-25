@@ -27,15 +27,15 @@ func (c CompactFirst) SelectGPUs(gpus []*tfv1.GPU, count uint) ([]*tfv1.GPU, err
 	if count <= 1 {
 		// Start with the first GPU as the default selected
 		selected := gpus[0]
-		lowestTflops, _ := selected.Status.Available.Tflops.AsInt64()
-		lowestVRAM, _ := selected.Status.Available.Vram.AsInt64()
+		lowestTflops := selected.Status.Available.Tflops.Value()
+		lowestVRAM := selected.Status.Available.Vram.Value()
 
 		// Find the GPU with the lowest available resources (most packed)
 		for i := 1; i < len(gpus); i++ {
 			gpu := gpus[i]
 
-			currentTflops, _ := gpu.Status.Available.Tflops.AsInt64()
-			currentVRAM, _ := gpu.Status.Available.Vram.AsInt64()
+			currentTflops := gpu.Status.Available.Tflops.Value()
+			currentVRAM := gpu.Status.Available.Vram.Value()
 
 			// We prioritize minimizing VRAM, but if VRAM is equal, we choose based on TFlops
 			if currentVRAM < lowestVRAM || (currentVRAM == lowestVRAM && currentTflops < lowestTflops) {
@@ -84,15 +84,15 @@ func (c CompactFirst) SelectGPUs(gpus []*tfv1.GPU, count uint) ([]*tfv1.GPU, err
 		// Sort GPUs by resource availability (most packed first)
 		sort.Slice(nodeGPUs, func(i, j int) bool {
 			// Compare VRAM first
-			vramI, _ := nodeGPUs[i].Status.Available.Vram.AsInt64()
-			vramJ, _ := nodeGPUs[j].Status.Available.Vram.AsInt64()
+			vramI := nodeGPUs[i].Status.Available.Vram.Value()
+			vramJ := nodeGPUs[j].Status.Available.Vram.Value()
 			if vramI != vramJ {
 				return vramI < vramJ // Lower VRAM (more packed) comes first
 			}
 
 			// If VRAM is equal, compare TFlops
-			tflopsI, _ := nodeGPUs[i].Status.Available.Tflops.AsInt64()
-			tflopsJ, _ := nodeGPUs[j].Status.Available.Tflops.AsInt64()
+			tflopsI := nodeGPUs[i].Status.Available.Tflops.Value()
+			tflopsJ := nodeGPUs[j].Status.Available.Tflops.Value()
 			return tflopsI < tflopsJ // Lower TFlops (more packed) comes first
 		})
 
@@ -100,8 +100,8 @@ func (c CompactFirst) SelectGPUs(gpus []*tfv1.GPU, count uint) ([]*tfv1.GPU, err
 		var totalVRAM int64
 		var totalTFlops int64
 		for i := 0; i < int(count); i++ {
-			vram, _ := nodeGPUs[i].Status.Available.Vram.AsInt64()
-			tflops, _ := nodeGPUs[i].Status.Available.Tflops.AsInt64()
+			vram := nodeGPUs[i].Status.Available.Vram.Value()
+			tflops := nodeGPUs[i].Status.Available.Tflops.Value()
 			totalVRAM += vram
 			totalTFlops += tflops
 		}

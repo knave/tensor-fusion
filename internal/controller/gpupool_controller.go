@@ -340,8 +340,8 @@ func (r *GPUPoolReconciler) reconcilePoolCurrentCapacityAndReadiness(
 
 	allowScaleToZero := true
 	if pool.Spec.CapacityConfig != nil && pool.Spec.CapacityConfig.MinResources != nil {
-		minTFlops, _ := pool.Spec.CapacityConfig.MinResources.TFlops.AsInt64()
-		minVRAM, _ := pool.Spec.CapacityConfig.MinResources.VRAM.AsInt64()
+		minTFlops := pool.Spec.CapacityConfig.MinResources.TFlops.Value()
+		minVRAM := pool.Spec.CapacityConfig.MinResources.VRAM.Value()
 
 		allowScaleToZero = minTFlops == 0 && minVRAM == 0
 	}
