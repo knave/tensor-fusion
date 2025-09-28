@@ -122,19 +122,18 @@ func (m *TensorFusionPodMutator) Handle(ctx context.Context, req admission.Reque
 		podCounterAnnotationKey = podCounterKey
 	}
 
-	if tfInfo.PendingSetPodAsOwner {
-		pod.Annotations[constants.SetPendingOwnedWorkloadAnnotation] = tfInfo.WorkloadName
-	}
-
 	pool := &tfv1.GPUPool{}
 	if err := m.Client.Get(ctx, client.ObjectKey{Name: tfInfo.Profile.PoolName}, pool); err != nil {
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("gpu pool(%s) does not exist", tfInfo.Profile.PoolName))
 	}
 
-	workload := &tfv1.TensorFusionWorkload{}
-	if tfInfo.GenWorkload {
-		if err := m.createOrUpdateWorkload(ctx, pod, &tfInfo, workload, pool); err != nil {
-			return admission.Errored(http.StatusInternalServerError, fmt.Errorf("create tf workload: %w", err))
+	if workload, err := m.createOrUpdateWorkload(ctx, pod, &tfInfo, pool); err != nil {
+		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("create tf workload: %w", err))
+	} else {
+		// Pod mutating webhook can not get Pod UID,
+		// thus need pod controller to set the controller reference
+		if controllerRef := metav1.GetControllerOfNoCopy(workload); controllerRef == nil {
+			pod.Annotations[constants.SetPendingOwnedWorkloadAnnotation] = tfInfo.WorkloadName
 		}
 	}
 
@@ -201,7 +200,11 @@ func (m *TensorFusionPodMutator) InjectDecoder(d admission.Decoder) error {
 	return nil
 }
 
-func (m *TensorFusionPodMutator) createOrUpdateWorkload(ctx context.Context, pod *corev1.Pod, tfInfo *utils.TensorFusionInfo, workload *tfv1.TensorFusionWorkload, pool *tfv1.GPUPool) error {
+func (m *TensorFusionPodMutator) createOrUpdateWorkload(
+	ctx context.Context,
+	pod *corev1.Pod,
+	tfInfo *utils.TensorFusionInfo,
+	pool *tfv1.GPUPool) (*tfv1.TensorFusionWorkload, error) {
 	// Create the desired spec for comparison
 	desiredSpec := tfv1.WorkloadProfileSpec{
 		Replicas:          nil,
@@ -214,13 +217,12 @@ func (m *TensorFusionPodMutator) createOrUpdateWorkload(ctx context.Context, pod
 		AutoScalingConfig: tfInfo.Profile.AutoScalingConfig,
 	}
 
+	workload := &tfv1.TensorFusionWorkload{}
 	err := m.Client.Get(ctx, client.ObjectKey{Name: tfInfo.WorkloadName, Namespace: pod.Namespace}, workload)
 	if err != nil {
 		if !errors.IsNotFound(err) {
-			return fmt.Errorf("failed to get workload: %w", err)
+			return nil, fmt.Errorf("failed to get workload: %w", err)
 		}
-		// find root owner references of pod
-		firstLevelOwnerRef := utils.FindFirstLevelOwnerReference(pod)
 
 		// Create a new workload
 		workload = &tfv1.TensorFusionWorkload{
@@ -242,25 +244,42 @@ func (m *TensorFusionPodMutator) createOrUpdateWorkload(ctx context.Context, pod
 			workload.Annotations[constants.DisableFeaturesAnnotation] = pod.Labels[constants.DisableFeaturesAnnotation]
 		}
 
-		if firstLevelOwnerRef != nil {
-			workload.OwnerReferences = []metav1.OwnerReference{*firstLevelOwnerRef}
+		if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil {
+			workload.OwnerReferences = []metav1.OwnerReference{*controllerRef}
 		}
 
 		if err := m.Client.Create(ctx, workload); err != nil {
-			return fmt.Errorf("failed to create workload: %w", err)
+			return nil, fmt.Errorf("failed to create workload: %w", err)
 		}
-		return nil
+		return workload, nil
 	}
 
-	// Compare the entire spec at once
-	if !equality.Semantic.DeepEqual(workload.Spec, desiredSpec) {
+	podControllerRef := metav1.GetControllerOf(pod)
+	workloadControllerRef := metav1.GetControllerOf(workload)
+	if !isSameControllerRef(podControllerRef, workloadControllerRef) ||
+		!equality.Semantic.DeepEqual(workload.Spec, desiredSpec) {
+		patch := client.MergeFrom(workload.DeepCopy())
+		if podControllerRef != nil {
+			workload.OwnerReferences = []metav1.OwnerReference{*podControllerRef}
+		} else {
+			workload.OwnerReferences = []metav1.OwnerReference{}
+		}
 		workload.Spec = desiredSpec
-		// TODO retry on conflict
-		if err := m.Client.Update(ctx, workload); err != nil {
-			return fmt.Errorf("failed to update workload: %w", err)
+		if err := m.Client.Patch(ctx, workload, patch); err != nil {
+			return nil, fmt.Errorf("failed to patch workload: %w", err)
 		}
 	}
-	return nil
+	return workload, nil
+}
+
+func isSameControllerRef(a, b *metav1.OwnerReference) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.UID == b.UID
 }
 
 func (m *TensorFusionPodMutator) patchTFClient(
