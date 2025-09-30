@@ -29,7 +29,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,7 +52,7 @@ func SetupPodWebhookWithManager(mgr ctrl.Manager, portAllocator *portallocator.P
 	webhookServer.Register("/mutate-v1-pod",
 		&admission.Webhook{
 			Handler: &TensorFusionPodMutator{
-				decoder:       admission.NewDecoder(runtime.NewScheme()),
+				decoder:       admission.NewDecoder(mgr.GetScheme()),
 				Client:        mgr.GetClient(),
 				portAllocator: portAllocator,
 			},
